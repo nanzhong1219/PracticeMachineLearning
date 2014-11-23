@@ -1,0 +1,53 @@
+---
+title: "Predicting Weight lifting correctness"
+author: "Nan Zhong"
+date: "Saturday, November 22, 2014"
+output: html_document
+---
+
+step 1: importing data
+Importing the csv data files into r using read.tables, setting "NA" and blank value to be NAs.
+```{r}
+training<-read.table("pml-training.csv",header=TRUE,sep=",",na.strings=c("NA",""))
+```
+
+step 2: data availability check
+A simple exploration of raw data showed that lots of the variables have over 90% NAs. Take another look at the testing dataset and realize all those high-missing variables are not there. To prevent speculation, imputing too many NAs should not be an option. Therefore, those high missing variables were dropped. 
+
+```{r}
+data_ava<-sapply(seq_len(ncol(training)),function(i) sum(is.na(training[,i])))
+training2<-subset(training,select=grepl(0,data_ava))
+```
+
+
+step 3: variable selections
+Even after dropping those variables, there are still 60 predictors. To avoid long-time model fitting, predictors were aimed to shrink to 20. Variables should be selected based on it's importance relative to the dependent variables. In randomforest model, the variable prediction power is evaluated by "Gini importance". A small sample of data(1%) is randomly selected to quickly fit a random forest model, variable importance was one of the model output. Select the top 20.
+```{r}
+library(caret)
+inTrain<-createDataPartition(training2$classe,p=0.01,list=FALSE)
+train<-training2[,-1][inTrain,] # remove the row number
+
+modFit<-train(classe~.,data=train,method="rf",prox=TRUE)
+rank<-as.data.frame(modFit$finalModel$importance)
+rank$varNam<-rownames(rank)
+selected_var<-rank$varNam[order(-rank$MeanDecreaseGini)][1:20]
+```
+
+step 4: train model
+Consider random forest is a time consuming algorithm,training set were selected to be 20% of given data. A repeatedcv with folder number being 5 is used in the training control.
+```{r,cache=TRUE}
+training3<-subset(training2,select=selected_var)
+training3$classe<-training2$classe
+inTrain<-createDataPartition(training3$classe,p=0.2,list=FALSE)
+train<-training3[inTrain,]
+test<-training3[-inTrain,]
+fitControl <- trainControl(method = "repeatedcv",number = 5,repeats = 5)
+modFit<-train(classe~.,data=train,method="rf",prox=TRUE,trControl =fitControl)
+```
+
+step 5: validate the prediction model using test dataset
+```{r}
+table(predict(modFit,test),test$classe)
+```
+
+The results are pretty promissing.
